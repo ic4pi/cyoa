@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>First World Problems: The Adventure</title>
+<style>
+:root{--bg:#111;--fg:#e8e6e1;--dim:#8a877f;--acc:#d4a24c;--card:#1a1a1a;--line:#2c2c2c}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:18px/1.6 Georgia,serif}
+main{max-width:640px;margin:0 auto;padding:32px 16px 80px}
+h1{font-size:1.7rem;margin:0 0 4px}
+.sub{color:var(--dim);margin:0 0 28px;font-style:italic}
+h2{font-size:1.1rem;color:var(--acc);margin:28px 0 10px;font-weight:normal;text-transform:uppercase;letter-spacing:.08em}
+button{display:block;width:100%;text-align:left;background:var(--card);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:14px 16px;margin:8px 0;font:inherit;cursor:pointer}
+button:hover:not(:disabled){border-color:var(--acc)}
+button small{display:block;color:var(--dim);font-size:.8rem}
+.row{display:flex;gap:8px}.row button{text-align:center}
+.passage{margin:0 0 20px}.past{color:var(--dim)}
+.picked{color:var(--acc);font-style:italic;margin:-8px 0 22px}
+.meta{color:var(--dim);font-size:.8rem;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px}
+.load{color:var(--dim);font-style:italic}
+.err{color:#e07a6b}
+[hidden]{display:none}
+</style>
+</head>
+<body>
+<main>
+<h1>First World Problems: The Adventure</h1>
+<p class="sub">Your suffering, narrated. Choose carefully. It won't matter.</p>
+<div id="app"></div>
+</main>
+<script>
+const TOPICS = {
+  male: [
+    'The Wi-Fi dies five minutes before the big game',
+    'Self-checkout insists there is an unexpected item in the bagging area',
+    'Your streaming service raised its price by two dollars',
+    'The fantasy football group chat has turned on you',
+    'Your standing desk refuses to stand',
+    'The drive-thru forgot the bacon'
+  ],
+  female: [
+    'The barista made your latte with oat milk instead of almond',
+    'Your brunch reservation vanished and the wait is ninety minutes',
+    'The person in front of you reclined their seat the entire flight',
+    'Your phone is at 1% and nobody has your charger',
+    'The group chat left your message on read',
+    'Your skincare serum is back-ordered until next month'
+  ]
+};
+const LENGTHS = { short: ['5-minute read', '6 chapters'], long: ['15-minute read', '18 chapters'] };
+const app = document.getElementById('app');
+const S = { track: null, topic: null, length: null, step: 0, history: [], pastHtml: '' };
+const el = (h) => { const d = document.createElement('div'); d.innerHTML = h; return d; };
+const esc = (s) => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function pickTrack() {
+  app.innerHTML = `<h2>Who's suffering today?</h2>
+    <button data-t="male">Guy problems</button>
+    <button data-t="female">Girl problems</button>
+    <button data-t="any">Neither / both / mind your business<small>Pick from every topic</small></button>`;
+  app.querySelectorAll('button').forEach(b => b.onclick = () => { S.track = b.dataset.t; pickTopic(); });
+}
+function pickTopic() {
+  const list = S.track === 'any' ? [...TOPICS.male, ...TOPICS.female] : TOPICS[S.track];
+  app.innerHTML = '<h2>Pick your tragedy</h2>' + list.map((t, i) => `<button data-i="${i}">${esc(t)}</button>`).join('');
+  app.querySelectorAll('button').forEach(b => b.onclick = () => { S.topic = list[b.dataset.i]; pickLength(); });
+}
+function pickLength() {
+  app.innerHTML = '<h2>How long can you stand it?</h2>' +
+    Object.entries(LENGTHS).map(([k, [a, b]]) => `<button data-l="${k}">${a}<small>${b}</small></button>`).join('');
+  app.querySelectorAll('button').forEach(b => b.onclick = () => { S.length = b.dataset.l; S.step = 0; S.history = []; S.pastHtml = ''; next(null); });
+}
+
+async function next(choice) {
+  S.step++;
+  app.innerHTML = S.pastHtml + '<p class="load">The narrator sighs and begins typing…</p>';
+  try {
+    const r = await fetch('/api/story', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ track: S.track, topic: S.topic, length: S.length, step: S.step, history: S.history })
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'failed');
+    render(d);
+  } catch (e) {
+    S.step--;
+    app.innerHTML = S.pastHtml + `<p class="err">${esc(e.message)}</p><button id="retry">Try again</button>`;
+    document.getElementById('retry').onclick = () => next(choice);
+  }
+}
+function render(d) {
+  const shuffled = [...d.choices].sort(() => Math.random() - .5);
+  const cur = `<div class="meta">Chapter ${d.step} of ${d.total}</div><p class="passage">${esc(d.text).replace(/\n+/g, '</p><p class="passage">')}</p>`;
+  app.innerHTML = S.pastHtml + cur;
+  if (!shuffled.length) {
+    const b = el('<h2>The End</h2><button id="again">Suffer again</button>');
+    app.append(...b.childNodes);
+    document.getElementById('again').onclick = pickTrack;
+    return;
+  }
+  shuffled.forEach(c => {
+    const b = document.createElement('button');
+    b.textContent = c;
+    b.onclick = () => {
+      S.history.push({ text: d.text, choice: c });
+      S.pastHtml += `<div class="past">${cur}</div><p class="picked">→ ${esc(c)}</p>`;
+      next(c);
+    };
+    app.append(b);
+  });
+}
+pickTrack();
+</script>
+</body>
+</html>
